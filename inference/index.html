@@ -1,0 +1,513 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Autoscaled LLM inference endpoint — Alexia Lou</title>
+<style>
+:root{
+  --bg:#0b0f17; --surface:#111826; --border:#1f2a3d; --text:#e6edf3; --muted:#8b98ab;
+  --accent:#58a6ff; --green:#3fb950; --red:#f85149; --amber:#d29922;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--text);
+  font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+  line-height:1.55}
+.mono{font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
+.wrap{max-width:1000px;margin:0 auto;padding:32px 20px 64px}
+a{color:var(--accent);text-decoration:none}
+a:hover{text-decoration:underline}
+.back{display:inline-block;margin-bottom:12px;color:var(--muted);font-size:14px}
+.back:hover{color:var(--accent)}
+h1{margin:0 0 8px;font-size:32px;letter-spacing:-0.02em}
+.lede{color:var(--muted);margin:0 0 12px;max-width:70ch}
+.badge{display:inline-block;border:1px solid var(--border);border-radius:999px;
+  padding:4px 14px;font-size:12.5px;color:var(--muted);background:var(--surface)}
+.badge b{color:var(--green);font-weight:600}
+section{margin-top:52px}
+h2{font-size:22px;margin:0 0 6px}
+.sec-sub{color:var(--muted);font-size:14px;margin:0 0 16px;max-width:75ch}
+/* controls */
+.controls{background:var(--surface);border:1px solid var(--border);border-radius:12px;
+  padding:20px;display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:18px}
+.ctl label{display:flex;justify-content:space-between;font-size:13.5px;color:var(--muted);margin-bottom:6px}
+.ctl label output{color:var(--text);font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
+input[type=range]{width:100%;accent-color:var(--accent)}
+.btns{display:flex;gap:10px;align-items:end}
+button{background:var(--accent);color:#04121f;border:0;border-radius:8px;
+  padding:10px 20px;font-weight:600;font-size:14px;cursor:pointer}
+button:hover{filter:brightness(1.1)}
+button:disabled{opacity:.35;cursor:default;filter:none}
+button.ghost{background:transparent;color:var(--text);border:1px solid var(--border)}
+.note{font-size:13px;color:var(--muted);margin:12px 2px 0}
+/* tiles */
+.tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:10px;margin:18px 0}
+.tile{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:12px 14px}
+.tile .k{color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:.05em}
+.tile .v{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:21px;margin-top:5px}
+.tile .v.warn{color:var(--amber)} .tile .v.bad{color:var(--red)} .tile .v.good{color:var(--green)}
+/* replica bars */
+.replicas{background:var(--surface);border:1px solid var(--border);border-radius:12px;
+  padding:16px 18px;margin-bottom:18px}
+.replicas h3,.chart h3{margin:0 0 10px;font-size:14px;color:var(--muted);font-weight:600}
+.rep-row{display:grid;grid-template-columns:86px 1fr minmax(180px,240px);gap:12px;
+  align-items:center;margin:7px 0;font-size:13px}
+.rep-name{color:var(--muted)}
+.bar{height:14px;background:#0a101b;border:1px solid var(--border);border-radius:7px;overflow:hidden}
+.bar>div{height:100%;background:var(--accent);border-radius:7px;transition:width .25s linear}
+.bar>div.qbar{background:var(--amber)}
+.rep-meta{color:var(--muted);font-size:12.5px;text-align:right}
+/* charts */
+.charts{display:grid;grid-template-columns:repeat(auto-fit,minmax(270px,1fr));gap:12px}
+.chart{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:14px}
+.chart svg{width:100%;height:110px;display:block}
+.cap{display:flex;justify-content:space-between;font-size:12px;color:var(--muted);margin-top:6px}
+.cap .now{color:var(--text);font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
+/* kv calculator */
+.kv{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:20px}
+.kv-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:14px;margin-bottom:16px}
+.field label{display:block;font-size:12.5px;color:var(--muted);margin-bottom:6px}
+.field input,.field select{background:#0a101b;border:1px solid var(--border);color:var(--text);
+  border-radius:8px;padding:9px 10px;width:100%;font-size:14px;
+  font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
+.field .derived{padding:9px 10px;color:var(--accent);font-size:14px}
+.kv-out{border-top:1px solid var(--border);padding-top:16px;margin-top:4px}
+.formula{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:13.5px;
+  color:var(--muted);margin-bottom:10px;overflow-x:auto;white-space:nowrap}
+.formula b{color:var(--text)}
+.kv-result{font-size:15px;margin-bottom:10px}
+.kv-result strong{font-size:26px;color:var(--accent);font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
+.h100bar{height:12px;background:#0a101b;border:1px solid var(--border);border-radius:6px;overflow:hidden;margin:8px 0}
+.h100bar>div{height:100%;background:var(--green)}
+.h100note{font-size:13px;color:var(--muted)}
+/* how it works */
+.how p{margin:0 0 14px;max-width:78ch}
+.how code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:.92em;
+  background:var(--surface);border:1px solid var(--border);border-radius:5px;padding:1px 6px}
+.how .honest{border-left:3px solid var(--amber);padding:2px 0 2px 14px;color:var(--muted)}
+footer{margin-top:64px;padding-top:18px;border-top:1px solid var(--border);
+  color:var(--muted);font-size:13.5px}
+@media(max-width:640px){.rep-row{grid-template-columns:70px 1fr}.rep-meta{grid-column:2;text-align:left}}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header>
+  <a class="back" href="../">← projects</a>
+  <h1>Autoscaled LLM inference endpoint</h1>
+  <p class="lede">A discrete-event simulation of an LLM serving fleet: continuous batching, queue dynamics, KV-cache math, and a latency-driven autoscaler.</p>
+  <span class="badge"><b>●</b>&nbsp; runs 100% in your browser · simulation</span>
+</header>
+
+<section id="sim">
+  <h2>Fleet simulator</h2>
+  <p class="sec-sub">Requests arrive as a Poisson process. Each replica serves a running batch with a fixed token budget per tick (continuous batching). An autoscaler adds or removes replicas based on p95 latency and queue depth.</p>
+
+  <div class="controls">
+    <div class="ctl">
+      <label>Arrival rate <output id="qps-val"></output></label>
+      <input type="range" id="qps" min="2" max="60" step="1" value="18">
+    </div>
+    <div class="ctl">
+      <label>Avg output tokens <output id="avgOut-val"></output></label>
+      <input type="range" id="avgOut" min="64" max="1024" step="16" value="256">
+    </div>
+    <div class="ctl">
+      <label>p95 latency target <output id="target-val"></output></label>
+      <input type="range" id="target" min="1" max="10" step="0.5" value="4">
+    </div>
+    <div class="btns">
+      <button id="btn-start">Start</button>
+      <button id="btn-pause" class="ghost" disabled>Pause</button>
+      <button id="btn-reset" class="ghost">Reset</button>
+    </div>
+  </div>
+  <p class="note">Autoscaler evaluates every 2s: scale up if p95 &gt; target or queue &gt; 40 · scale down after 3 consecutive calm evals (p95 &lt; ½ target and empty queue). Min 1, max 8 replicas.</p>
+
+  <div class="tiles">
+    <div class="tile"><div class="k">Replicas</div><div class="v" id="t-replicas">1</div></div>
+    <div class="tile"><div class="k">Queued requests</div><div class="v" id="t-queued">0</div></div>
+    <div class="tile"><div class="k">Running batch tokens</div><div class="v" id="t-inflight">0</div></div>
+    <div class="tile"><div class="k">Throughput (tok/s)</div><div class="v" id="t-thr">0</div></div>
+    <div class="tile"><div class="k">p50 latency</div><div class="v" id="t-p50">—</div></div>
+    <div class="tile"><div class="k">p95 latency</div><div class="v" id="t-p95">—</div></div>
+    <div class="tile"><div class="k">Est. cost / 1M tokens</div><div class="v" id="t-cost">—</div></div>
+  </div>
+
+  <div class="replicas">
+    <h3>Replica load</h3>
+    <div id="replica-bars"></div>
+  </div>
+
+  <div class="charts">
+    <div class="chart">
+      <h3>Throughput (tok/s)</h3>
+      <svg id="c-thr" viewBox="0 0 300 110" preserveAspectRatio="none"></svg>
+      <div class="cap"><span>last 90s</span><span class="now" id="cap-thr">—</span></div>
+    </div>
+    <div class="chart">
+      <h3>p95 latency (s)</h3>
+      <svg id="c-p95" viewBox="0 0 300 110" preserveAspectRatio="none"></svg>
+      <div class="cap"><span>dashed = target</span><span class="now" id="cap-p95">—</span></div>
+    </div>
+    <div class="chart">
+      <h3>Replicas</h3>
+      <svg id="c-rep" viewBox="0 0 300 110" preserveAspectRatio="none"></svg>
+      <div class="cap"><span>last 90s</span><span class="now" id="cap-rep">1</span></div>
+    </div>
+  </div>
+</section>
+
+<section id="kv">
+  <h2>KV-cache calculator</h2>
+  <p class="sec-sub">Every decoded token's keys and values are cached per layer so the model doesn't recompute them. The cache grows with sequence length and batch size — this is usually what caps your max batch.</p>
+  <div class="kv">
+    <div class="kv-grid">
+      <div class="field"><label>Layers</label><input type="number" id="kv-layers" value="32" min="1"></div>
+      <div class="field"><label>Hidden dim</label><input type="number" id="kv-hidden" value="4096" min="1"></div>
+      <div class="field"><label>Attention heads</label><input type="number" id="kv-attn" value="32" min="1"></div>
+      <div class="field"><label>KV heads (GQA)</label><input type="number" id="kv-kvh" value="8" min="1"></div>
+      <div class="field"><label>Head dim (derived)</label><div class="derived mono" id="kv-headdim">128</div></div>
+      <div class="field"><label>Dtype</label>
+        <select id="kv-dtype">
+          <option value="2" selected>FP16 · 2 B</option>
+          <option value="1">FP8 · 1 B</option>
+          <option value="1">INT8 · 1 B</option>
+        </select>
+      </div>
+      <div class="field"><label>Max seq len</label><input type="number" id="kv-seq" value="8192" min="1"></div>
+      <div class="field"><label>Batch size</label><input type="number" id="kv-batch" value="16" min="1"></div>
+    </div>
+    <button id="kv-preset" class="ghost" style="margin-bottom:16px">Llama-3.1-8B</button>
+    <div class="kv-out">
+      <div class="formula" id="kv-formula"></div>
+      <div class="kv-result" id="kv-result"></div>
+      <div class="h100bar"><div id="kv-h100fill" style="width:0%"></div></div>
+      <div class="h100note" id="kv-h100note"></div>
+    </div>
+  </div>
+</section>
+
+<section id="how" class="how">
+  <h2>How it works</h2>
+  <p><b>Prefill vs decode.</b> The first forward pass over the prompt (prefill) is compute-bound — big dense matmuls that saturate the GPU's FLOPS. Every token after that (decode) is memory-bandwidth-bound: the full weight matrix must be streamed from HBM for a single token's worth of math. That's why decode throughput, not prefill, determines serving capacity.</p>
+  <p><b>Continuous batching.</b> Instead of waiting for a full static batch, the scheduler admits new requests into the running batch the moment a slot frees. In this sim each replica holds up to 32 active requests and spreads its per-tick token budget evenly across them — the throughput gain from batching is sublinear, which is why latency climbs steeply past saturation.</p>
+  <p><b>KV cache.</b> For each layer, each token's key and value vectors (2 × <code>kv_heads</code> × <code>head_dim</code> elements) are stored for the whole sequence, so attention over past tokens is O(1) per step instead of recomputed. GQA (fewer KV heads than attention heads) shrinks this cache linearly — the main reason 8B-class models can serve long contexts on one GPU.</p>
+  <p><b>Autoscaling.</b> The controller samples p95 end-to-end latency (queue + service) and queue depth every 2s. Scale-up is aggressive (one replica per eval while p95 &gt; target or queue &gt; 40); scale-down requires 3 consecutive calm evals, which avoids flapping when traffic is bursty.</p>
+  <p><b>Cost math.</b> At $2.50/GPU-hr per replica, cost per million tokens = <code>replicas × 2.50 / (measured tok/s × 3600) × 10⁶</code>. It falls as throughput rises — batching harder is cheaper per token — and jumps when the autoscaler adds a replica.</p>
+  <p class="honest"><b>Honest note:</b> the per-replica service rate (~2500 tok/s for an 8B-class model on H100-class hardware) is a calibrated constant, not a real model. Prefill is modeled as burning budget ~32× faster than decode rather than simulated as a separate phase — directionally right (prefill is compute-bound) but the factor is a simplification. Real fleets also contend on interconnect, preemption, and chunked-prefill scheduling, none of which this sim captures.</p>
+</section>
+
+<footer>Alexia Lou · <a href="https://github.com/peppercatmeow">github.com/peppercatmeow</a></footer>
+
+</div>
+
+<script>
+"use strict";
+/* ============ helpers ============ */
+const el = id => document.getElementById(id);
+const fmtInt = n => Math.round(n).toLocaleString("en-US");
+
+/* ============ simulation constants ============ */
+const TICK_MS = 250;                 // simulation tick
+const SERVICE_RATE = 2500;           // tok/s per replica (calibrated constant — see "How it works")
+const TOK_PER_TICK = SERVICE_RATE * TICK_MS / 1000; // 625
+const MAX_ACTIVE = 32;               // max concurrent requests per replica
+const MAX_REPLICAS = 8;
+const PREFILL_BURN = 32;           // prefill is compute-bound: modeled as burning token
+                                   // budget ~32x faster than decode (see "How it works")
+const STAT_WINDOW_S = 30;            // rolling window for p50/p95/throughput
+const CHART_WINDOW_S = 90;
+const GPU_COST_HR = 2.50;            // $ per replica-hour
+
+const params = { qps: 18, avgOut: 256, target: 4 };
+
+let S = freshState();
+function freshState(){
+  return {
+    simTime: 0, tick: 0,
+    replicas: [{ active: [] }],
+    queue: [],
+    completed: [],      // {latency, doneAt} — pruned to STAT_WINDOW_S
+    tokSamples: [],     // {t, tok} per tick — pruned to STAT_WINDOW_S
+    hist: { t: [], thr: [], p95: [], rep: [] }, // pruned to CHART_WINDOW_S
+    cool: 0,            // consecutive calm autoscale evaluations
+    tokensThisTick: 0
+  };
+}
+
+/* Poisson arrivals via Knuth's algorithm; lambda = expected arrivals per tick */
+function poisson(lambda){
+  const L = Math.exp(-lambda);
+  let k = 0, p = 1;
+  do { k++; p *= Math.random(); } while (p > L);
+  return k - 1;
+}
+
+function makeRequest(){
+  const prefill = 128 + Math.floor(Math.random() * 1921); // 128..2048
+  // decode length biased low: E[4*r1*r2] = 1, so mean ≈ avgOut
+  const decode = Math.max(32, Math.round(32 + (params.avgOut - 32) * 4 * Math.random() * Math.random()));
+  // prefill is compute-bound: model it as burning budget ~32x faster than decode
+  const work = prefill / PREFILL_BURN + decode;
+  return { remaining: work, arrival: S.simTime };
+}
+
+function percentile(sorted, q){
+  if (!sorted.length) return 0;
+  const i = Math.min(sorted.length - 1, Math.ceil(q * sorted.length) - 1);
+  return sorted[i];
+}
+
+function computeStats(){
+  const lat = S.completed.map(c => c.latency).sort((a, b) => a - b);
+  let thr = 0;
+  if (S.tokSamples.length){
+    const sum = S.tokSamples.reduce((a, s) => a + s.tok, 0);
+    thr = sum / (S.tokSamples.length * TICK_MS / 1000);
+  }
+  return { p50: percentile(lat, 0.5), p95: percentile(lat, 0.95), thr, n: lat.length };
+}
+
+/* Autoscaler: runs every 2s (every 8th tick).
+   Uses a 10s control window (shorter than the 30s display window): a long
+   window stays contaminated by pre-scale-up slow requests and causes
+   runaway over-provisioning. Short control windows are standard practice. */
+function autoscale(){
+  const cutoff = S.simTime - 10;
+  const lat = [];
+  for (const c of S.completed) if (c.doneAt >= cutoff) lat.push(c.latency);
+  lat.sort((a, b) => a - b);
+  const p95 = percentile(lat, 0.95);
+  const qlen = S.queue.length;
+  if (p95 > params.target || qlen > 40){
+    if (S.replicas.length < MAX_REPLICAS) S.replicas.push({ active: [] });
+    S.cool = 0;
+  } else if (p95 < 0.5 * params.target && qlen === 0){
+    S.cool++;
+    if (S.cool >= 3 && S.replicas.length > 1){
+      const removed = S.replicas.pop();
+      S.queue = removed.active.concat(S.queue); // in-flight work back to front of queue
+      S.cool = 0;
+    }
+  } else {
+    S.cool = 0;
+  }
+}
+
+function tick(){
+  S.tick++;
+  S.simTime += TICK_MS / 1000;
+  S.tokensThisTick = 0;
+
+  // 1. arrivals
+  const n = poisson(params.qps * TICK_MS / 1000);
+  for (let i = 0; i < n; i++) S.queue.push(makeRequest());
+
+  // 2. serve: each replica spreads its token budget evenly over its active requests
+  for (const rep of S.replicas){
+    const act = rep.active;
+    if (!act.length) continue;
+    const perReq = TOK_PER_TICK / act.length;
+    const still = [];
+    for (const r of act){
+      const take = Math.min(perReq, r.remaining);
+      r.remaining -= take;
+      S.tokensThisTick += take;
+      if (r.remaining > 1e-6) still.push(r);
+      else S.completed.push({ latency: S.simTime - r.arrival, doneAt: S.simTime });
+    }
+    rep.active = still;
+  }
+
+  // 3. continuous batching: admit queued requests to least-loaded replicas
+  while (S.queue.length){
+    let best = null;
+    for (const rep of S.replicas){
+      if (rep.active.length >= MAX_ACTIVE) continue;
+      if (!best || rep.active.length < best.active.length) best = rep;
+    }
+    if (!best) break;
+    best.active.push(S.queue.shift());
+  }
+
+  // 4. prune rolling windows
+  const cutoff = S.simTime - STAT_WINDOW_S;
+  while (S.completed.length && S.completed[0].doneAt < cutoff) S.completed.shift();
+  while (S.tokSamples.length && S.tokSamples[0].t < cutoff) S.tokSamples.shift();
+  S.tokSamples.push({ t: S.simTime, tok: S.tokensThisTick });
+
+  // 5. autoscale every 2s
+  if (S.tick % 8 === 0) autoscale();
+
+  // 6. chart history
+  const st = computeStats();
+  const h = S.hist;
+  h.t.push(S.simTime); h.thr.push(st.thr); h.p95.push(st.p95); h.rep.push(S.replicas.length);
+  const hcut = S.simTime - CHART_WINDOW_S;
+  while (h.t.length && h.t[0] < hcut){ h.t.shift(); h.thr.shift(); h.p95.shift(); h.rep.shift(); }
+
+  render(st);
+}
+
+/* ============ rendering ============ */
+function pathFrom(vals, max, W, H, pad){
+  const n = vals.length;
+  if (n < 2 || max <= 0) return "";
+  const iw = W - 2 * pad, ih = H - 2 * pad;
+  let d = "";
+  for (let i = 0; i < n; i++){
+    const x = pad + iw * (i / (n - 1));
+    const y = pad + ih * (1 - Math.min(1, vals[i] / max));
+    d += (i ? "L" : "M") + x.toFixed(1) + " " + y.toFixed(1);
+  }
+  return d;
+}
+function gridSVG(W, H, pad, color){
+  return `<line x1="${pad}" y1="${H-pad}" x2="${W-pad}" y2="${H-pad}" stroke="${color}" stroke-width="1"/>` +
+         `<line x1="${pad}" y1="${pad+(H-2*pad)/2}" x2="${W-pad}" y2="${pad+(H-2*pad)/2}" stroke="${color}" stroke-width="1" stroke-dasharray="2 4" opacity="0.6"/>`;
+}
+const GRID = "#1f2a3d";
+
+function drawCharts(){
+  const W = 300, H = 110, pad = 8;
+  // throughput
+  const thr = S.hist.thr;
+  const tmax = Math.max(1000, ...thr);
+  el("c-thr").innerHTML = gridSVG(W,H,pad,GRID) +
+    `<path d="${pathFrom(thr,tmax,W,H,pad)}" fill="none" stroke="var(--accent)" stroke-width="1.5" vector-effect="non-scaling-stroke"/>`;
+  // p95 with dashed target line
+  const p95 = S.hist.p95;
+  const pmax = Math.max(params.target * 1.6, 0.5, ...p95);
+  const ty = pad + (H - 2*pad) * (1 - Math.min(1, params.target / pmax));
+  el("c-p95").innerHTML = gridSVG(W,H,pad,GRID) +
+    `<line x1="${pad}" y1="${ty.toFixed(1)}" x2="${W-pad}" y2="${ty.toFixed(1)}" stroke="var(--amber)" stroke-width="1.5" stroke-dasharray="5 4" vector-effect="non-scaling-stroke"/>` +
+    `<path d="${pathFrom(p95,pmax,W,H,pad)}" fill="none" stroke="var(--accent)" stroke-width="1.5" vector-effect="non-scaling-stroke"/>`;
+  // replicas (fixed 0..8 scale)
+  el("c-rep").innerHTML = gridSVG(W,H,pad,GRID) +
+    `<path d="${pathFrom(S.hist.rep,MAX_REPLICAS,W,H,pad)}" fill="none" stroke="var(--green)" stroke-width="1.5" vector-effect="non-scaling-stroke"/>`;
+}
+
+function render(st){
+  // tiles
+  let active = 0, inFlight = 0;
+  for (const rep of S.replicas){
+    active += rep.active.length;
+    for (const r of rep.active) inFlight += r.remaining;
+  }
+  el("t-replicas").textContent = S.replicas.length;
+  const qEl = el("t-queued");
+  qEl.textContent = S.queue.length;
+  qEl.className = "v" + (S.queue.length > 40 ? " bad" : S.queue.length > 10 ? " warn" : "");
+  el("t-inflight").textContent = fmtInt(inFlight);
+  el("t-thr").textContent = fmtInt(st.thr);
+  el("t-p50").textContent = st.n ? st.p50.toFixed(2) + "s" : "—";
+  const p95El = el("t-p95");
+  p95El.textContent = st.n ? st.p95.toFixed(2) + "s" : "—";
+  p95El.className = "v" + (st.n && st.p95 > params.target ? " bad" : st.n && st.p95 > 0.8*params.target ? " warn" : "");
+  el("t-cost").textContent = st.thr > 1
+    ? "$" + (S.replicas.length * GPU_COST_HR / (st.thr * 3600) * 1e6).toFixed(2)
+    : "—";
+
+  // replica bars
+  let html = "";
+  S.replicas.forEach((rep, i) => {
+    let rem = 0;
+    for (const r of rep.active) rem += r.remaining;
+    const pct = Math.min(100, rep.active.length / MAX_ACTIVE * 100);
+    html += `<div class="rep-row"><div class="rep-name mono">replica ${i+1}</div>` +
+      `<div class="bar"><div style="width:${pct.toFixed(1)}%"></div></div>` +
+      `<div class="rep-meta mono">${rep.active.length}/${MAX_ACTIVE} active · ${fmtInt(rem)} tok in flight</div></div>`;
+  });
+  const qpct = Math.min(100, S.queue.length / 80 * 100);
+  html += `<div class="rep-row"><div class="rep-name mono">queue</div>` +
+    `<div class="bar"><div class="qbar" style="width:${qpct.toFixed(1)}%"></div></div>` +
+    `<div class="rep-meta mono">${S.queue.length} waiting</div></div>`;
+  el("replica-bars").innerHTML = html;
+
+  // charts + captions
+  drawCharts();
+  el("cap-thr").textContent = fmtInt(st.thr) + " tok/s";
+  el("cap-p95").textContent = st.n ? st.p95.toFixed(2) + "s" : "—";
+  el("cap-rep").textContent = S.replicas.length;
+}
+
+/* ============ controls ============ */
+let timer = null;
+function syncButtons(){
+  el("btn-start").disabled = !!timer;
+  el("btn-pause").disabled = !timer;
+}
+el("btn-start").addEventListener("click", () => {
+  if (timer) return;
+  timer = setInterval(tick, TICK_MS);
+  syncButtons();
+});
+el("btn-pause").addEventListener("click", () => {
+  clearInterval(timer); timer = null; syncButtons();
+});
+el("btn-reset").addEventListener("click", () => {
+  clearInterval(timer); timer = null;
+  S = freshState();
+  render(computeStats());
+  syncButtons();
+});
+
+function bindSlider(id, key, fmt){
+  const node = el(id), out = el(id + "-val");
+  const upd = () => { params[key] = parseFloat(node.value); out.textContent = fmt(params[key]); };
+  node.addEventListener("input", upd);
+  upd();
+}
+bindSlider("qps", "qps", v => v.toFixed(0) + " qps");
+bindSlider("avgOut", "avgOut", v => v.toFixed(0) + " tok");
+bindSlider("target", "target", v => v.toFixed(1) + " s");
+
+/* ============ KV-cache calculator ============ */
+function kvCalc(){
+  const layers = Math.max(0, parseFloat(el("kv-layers").value) || 0);
+  const hidden = Math.max(0, parseFloat(el("kv-hidden").value) || 0);
+  const attn   = Math.max(1, parseFloat(el("kv-attn").value) || 1);
+  const kvh    = Math.max(0, parseFloat(el("kv-kvh").value) || 0);
+  const seq    = Math.max(0, parseFloat(el("kv-seq").value) || 0);
+  const batch  = Math.max(0, parseFloat(el("kv-batch").value) || 0);
+  const bytes  = parseInt(el("kv-dtype").value, 10) || 2;
+
+  const headDim = hidden / attn;
+  el("kv-headdim").textContent = Number.isFinite(headDim) ? String(headDim) : "—";
+
+  // KV bytes = 2 (K and V) × layers × kv_heads × head_dim × seq_len × batch × bytes/elt
+  const totalBytes = 2 * layers * kvh * headDim * seq * batch * bytes;
+  const gib = totalBytes / Math.pow(1024, 3);
+
+  el("kv-formula").innerHTML =
+    "KV = 2 × L × H<sub>kv</sub> × d<sub>head</sub> × S × B × bytes<br>" +
+    `<b>2 × ${layers} × ${kvh} × ${headDim} × ${seq} × ${batch} × ${bytes} B</b> = ${fmtInt(totalBytes)} B`;
+  el("kv-result").innerHTML = `<strong>${gib.toFixed(1)} GiB</strong> of KV cache`;
+
+  const H100 = 80;
+  const pct = Math.min(100, gib / H100 * 100);
+  const fill = el("kv-h100fill");
+  fill.style.width = pct.toFixed(1) + "%";
+  fill.style.background = gib > H100 ? "var(--red)" : gib > H100 * 0.8 ? "var(--amber)" : "var(--green)";
+  el("kv-h100note").textContent = gib > H100
+    ? `Does not fit in a single 80 GB H100 — needs tensor/pipeline parallelism or a smaller batch.`
+    : `${(gib / H100 * 100).toFixed(0)}% of an 80 GB H100, leaving ${(H100 - gib).toFixed(1)} GiB for weights, activations, and overhead.`;
+}
+["kv-layers","kv-hidden","kv-attn","kv-kvh","kv-dtype","kv-seq","kv-batch"]
+  .forEach(id => el(id).addEventListener("input", kvCalc));
+el("kv-preset").addEventListener("click", () => {
+  el("kv-layers").value = 32; el("kv-hidden").value = 4096;
+  el("kv-attn").value = 32;   el("kv-kvh").value = 8;
+  el("kv-dtype").value = "2"; el("kv-seq").value = 8192; el("kv-batch").value = 16;
+  kvCalc();
+});
+
+/* initial paint */
+kvCalc();
+render(computeStats());
+syncButtons();
+</script>
+</body>
+</html>
