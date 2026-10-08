@@ -1,0 +1,525 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>LoRA fine-tune: before/after benchmarks</title>
+<style>
+  :root{
+    --bg:#0b0f17; --surface:#111826; --border:#1f2a3d;
+    --text:#e6edf3; --muted:#8b98ab; --accent:#58a6ff;
+    --green:#3fb950; --red:#f85149; --amber:#d29922;
+  }
+  *{box-sizing:border-box}
+  body{
+    margin:0; background:var(--bg); color:var(--text);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif;
+    line-height:1.55; font-size:16px;
+  }
+  code,.mono{font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
+  .wrap{max-width:960px; margin:0 auto; padding:0 20px}
+  header.wrap{padding-top:32px; padding-bottom:8px}
+  a{color:var(--accent); text-decoration:none}
+  a:hover{text-decoration:underline}
+  .back{display:inline-block; margin-bottom:12px; font-size:14px}
+  h1{font-size:30px; line-height:1.25; margin:0 0 10px}
+  .lede{color:var(--muted); margin:0 0 14px; max-width:720px}
+  .badge{
+    display:inline-block; font-size:12px; color:var(--green);
+    border:1px solid var(--green); border-radius:999px;
+    padding:3px 12px; letter-spacing:.02em;
+  }
+  main.wrap{padding-bottom:24px}
+  section{margin-top:40px}
+  h2{font-size:21px; margin:0 0 14px; padding-bottom:8px; border-bottom:1px solid var(--border)}
+  .card{
+    background:var(--surface); border:1px solid var(--border);
+    border-radius:10px; padding:20px;
+  }
+  .grid2{display:grid; grid-template-columns:1fr 1fr; gap:16px}
+  @media (max-width:640px){ .grid2{grid-template-columns:1fr} }
+  label.field{display:block; margin-bottom:14px}
+  label.field > span{display:block; font-size:13px; color:var(--muted); margin-bottom:6px}
+  select{
+    width:100%; background:var(--bg); color:var(--text);
+    border:1px solid var(--border); border-radius:6px;
+    padding:9px 10px; font-size:14px;
+  }
+  input[type=range]{width:100%; accent-color:var(--accent)}
+  .rankrow{display:flex; align-items:baseline; gap:10px; margin-bottom:2px}
+  .rankrow output{font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:20px; color:var(--accent)}
+  fieldset{border:1px solid var(--border); border-radius:6px; padding:12px 14px; margin:0 0 14px}
+  legend{font-size:13px; color:var(--muted); padding:0 6px}
+  #modules{display:grid; grid-template-columns:repeat(auto-fill,minmax(220px,1fr)); gap:8px}
+  #modules label{display:flex; align-items:center; gap:8px; font-size:14px; cursor:pointer}
+  #modules input{accent-color:var(--accent)}
+  #modules .dim{color:var(--muted); font-size:12px; font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
+  .formula{
+    background:var(--bg); border:1px solid var(--border); border-radius:6px;
+    padding:12px 14px; margin:0 0 16px; font-size:14px; overflow-x:auto;
+  }
+  .formula code{color:var(--accent)}
+  .result{margin:6px 0 16px}
+  .result .big{font-size:26px; font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
+  .result .sub{color:var(--muted); font-size:14px; margin-top:4px}
+  .bar{
+    height:14px; background:var(--bg); border:1px solid var(--border);
+    border-radius:7px; margin-top:10px; overflow:hidden;
+  }
+  .bar > div{
+    height:100%; min-width:3px; background:var(--accent);
+    border-radius:7px; transition:width .25s ease;
+  }
+  table{width:100%; border-collapse:collapse; font-size:14px; margin-top:8px}
+  th,td{text-align:right; padding:9px 10px; border-bottom:1px solid var(--border)}
+  th:first-child,td:first-child{text-align:left}
+  th{color:var(--muted); font-weight:600; font-size:12px; text-transform:uppercase; letter-spacing:.04em}
+  td.mono,th.mono{font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
+  tr.hl td{color:var(--accent); font-weight:600}
+  .note{font-size:13px; color:var(--muted); margin:12px 0 0}
+  .note code{color:var(--text)}
+  .toggle{display:flex; gap:8px; margin:0 0 16px; flex-wrap:wrap}
+  .toggle button{
+    background:var(--surface); color:var(--muted);
+    border:1px solid var(--border); border-radius:6px;
+    padding:8px 14px; font-size:14px; cursor:pointer;
+  }
+  .toggle button.on{background:var(--accent); border-color:var(--accent); color:#0b0f17; font-weight:600}
+  .toggle button:hover{border-color:var(--accent)}
+  .legend{display:flex; gap:18px; margin:0 0 6px; font-size:13px; color:var(--muted)}
+  .chip{display:inline-block; width:12px; height:12px; border-radius:3px; margin-right:6px; vertical-align:-1px}
+  .chart-head{display:flex; justify-content:space-between; align-items:baseline; gap:12px; flex-wrap:wrap; margin:10px 0 4px}
+  #metricLabel{font-weight:600}
+  .illus{
+    font-size:12px; color:var(--amber); border:1px solid var(--amber);
+    border-radius:999px; padding:2px 10px; white-space:nowrap;
+  }
+  #chart svg{width:100%; height:auto; display:block}
+  .caption{font-size:14px; color:var(--muted); margin:14px 0 0; border-left:3px solid var(--accent); padding-left:12px}
+  .qcard{background:var(--bg); border:1px solid var(--border); border-radius:8px; padding:16px; margin-top:12px}
+  .qcard p{margin:0 0 12px; font-size:16px}
+  .qnum{
+    display:inline-block; font-size:12px; color:var(--accent);
+    border:1px solid var(--accent); border-radius:4px;
+    padding:1px 7px; margin-right:8px; vertical-align:2px;
+  }
+  .qcard button, .rec button{
+    background:var(--surface); color:var(--text);
+    border:1px solid var(--border); border-radius:6px;
+    padding:9px 22px; font-size:15px; cursor:pointer; margin-right:10px;
+  }
+  .qcard button:hover, .rec button:hover{border-color:var(--accent)}
+  .qa{font-size:14px; color:var(--muted); margin-top:10px}
+  .qa .ans{font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:13px; margin-left:6px}
+  .qa .ans.yes{color:var(--green)} .qa .ans.no{color:var(--red)}
+  .rec{
+    background:var(--bg); border:1px solid var(--green); border-radius:8px;
+    padding:18px; margin-top:14px;
+  }
+  .rec-title{font-size:19px; font-weight:700; color:var(--green); margin-bottom:6px}
+  .rec p{margin:0 0 14px; color:var(--muted)}
+  .how h3{font-size:16px; margin:18px 0 6px; color:var(--accent)}
+  .how p{margin:0 0 10px; color:var(--text)}
+  .how p.dim{color:var(--muted); font-size:15px}
+  footer.wrap{
+    border-top:1px solid var(--border); margin-top:48px;
+    padding-top:18px; padding-bottom:40px;
+    color:var(--muted); font-size:14px;
+  }
+</style>
+</head>
+<body>
+
+<header class="wrap">
+  <a class="back" href="../">&larr; projects</a>
+  <h1>LoRA fine-tune: before/after benchmarks</h1>
+  <p class="lede">Exact trainable-parameter accounting for adapter fine-tuning, memory math vs full fine-tuning, and benchmark comparison of base vs LoRA vs RAG.</p>
+  <span class="badge">runs 100% in your browser</span>
+</header>
+
+<main class="wrap">
+
+  <section>
+    <h2>Trainable parameter calculator</h2>
+    <div class="card">
+      <div class="grid2">
+        <label class="field">
+          <span>Base model</span>
+          <select id="preset">
+            <option value="8b">Llama-3.1-8B (32 layers, hidden 4096, attn heads 32, MLP 14336, ~8B params)</option>
+            <option value="70b">Llama-3.1-70B (80 layers, hidden 8192, attn heads 64, MLP 28672, ~70B params)</option>
+          </select>
+        </label>
+        <div class="field">
+          <span>LoRA rank r (capacity knob)</span>
+          <div class="rankrow">
+            <input type="range" id="rank" min="1" max="64" value="16" aria-label="LoRA rank">
+            <output id="rankVal" for="rank">16</output>
+          </div>
+        </div>
+      </div>
+      <fieldset>
+        <legend>Adapted modules</legend>
+        <div id="modules"></div>
+      </fieldset>
+      <p class="note" style="margin:0 0 14px">k_proj / v_proj use the kv-head dimension (both presets: 8 kv heads &times; 128 = 1024), not the full hidden size.</p>
+      <div class="formula">
+        per matrix: <code>r &middot; (d + k)</code> &nbsp;&mdash;&nbsp; B is <code>d&times;r</code>, A is <code>r&times;k</code><br>
+        total: <code>n_layers &times; &Sigma;</code> over checked modules of <code>r &middot; (d + k)</code>
+      </div>
+      <div class="result">
+        <div class="big" id="trainParams">&mdash;</div>
+        <div class="sub">trainable parameters &middot; <span id="trainPct">&mdash;</span> of base params</div>
+        <div class="bar" aria-hidden="true"><div id="trainBar"></div></div>
+      </div>
+      <table aria-label="Per-module parameter breakdown">
+        <thead><tr><th>Module</th><th>Shape (d&times;k)</th><th>Per layer</th><th>All layers</th></tr></thead>
+        <tbody id="breakdown"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <section>
+    <h2>Memory: full FT vs LoRA vs QLoRA</h2>
+    <div class="card">
+      <p class="note" style="margin-top:0">Training memory for the current config above. Frozen parameters carry no optimizer state.</p>
+      <table aria-label="Training memory comparison">
+        <thead><tr>
+          <th>Configuration</th><th>Weight memory</th><th>Trainable-param memory</th><th>Adam states (m+v)</th><th>Total</th>
+        </tr></thead>
+        <tbody id="memBody"></tbody>
+      </table>
+      <p class="note">
+        Assumptions: bf16 = 2 B/param, 4-bit base = 0.5 B/param, fp32 = 4 B/param.
+        Full FT: bf16 weights (2 B) + fp32 grads (4 B) + fp32 Adam m+v (8 B) on <em>all</em> params.
+        LoRA: frozen bf16 base + bf16 adapters (2 B) + bf16 grads (2 B) + fp32 Adam (8 B) on adapters only.
+        QLoRA row uses 8-bit Adam (&asymp;2 B/param) &mdash; standard bitsandbytes practice.
+      </p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Benchmarks: base vs LoRA vs RAG</h2>
+    <div class="card">
+      <div class="toggle" role="group" aria-label="Metric">
+        <button data-m="accuracy" class="on">Accuracy %</button>
+        <button data-m="latency">p50 latency ms</button>
+        <button data-m="cost">Cost / 1k queries $</button>
+      </div>
+      <div class="legend">
+        <span><span class="chip" style="background:#8b98ab"></span>Base</span>
+        <span><span class="chip" style="background:#58a6ff"></span>LoRA r=16</span>
+        <span><span class="chip" style="background:#3fb950"></span>RAG</span>
+      </div>
+      <div class="chart-head">
+        <span id="metricLabel"></span>
+        <span class="illus">illustrative results in the shape of a real eval harness</span>
+      </div>
+      <div id="chart"></div>
+      <p class="caption">RAG wins factual QA; LoRA wins style/format tasks at lower serving cost &mdash; the tradeoff this page teaches.</p>
+    </div>
+  </section>
+
+  <section>
+    <h2>Which lever do I pull?</h2>
+    <div class="card">
+      <div id="quiz"></div>
+    </div>
+  </section>
+
+  <section class="how">
+    <h2>How it works</h2>
+    <div class="card">
+      <h3>The adapter</h3>
+      <p>LoRA freezes the base weight <code>W</code> and learns a low-rank delta: <code>W&prime; = W + B&middot;A</code>, where <code>B</code> is <code>d&times;r</code> (initialized to zero) and <code>A</code> is <code>r&times;k</code> (small random init). Zero-init on <code>B</code> means the model behaves exactly like the base model at step zero.</p>
+      <h3>What rank r does</h3>
+      <p class="dim">Rank is the bottleneck dimension &mdash; the capacity knob. Trainable params grow linearly in <code>r</code> (<code>r&middot;(d+k)</code> per matrix), so doubling rank doubles adapter size. Too low and the adapter can't express the behavior change; too high and you're paying full-fine-tune prices for LoRA convenience. r=8&ndash;32 covers most real tasks.</p>
+      <h3>What to adapt</h3>
+      <p class="dim">The classic recipe adapts attention projections &mdash; <code>q_proj</code> and <code>v_proj</code>, often all of q/k/v/o &mdash; which is enough for style and formatting shifts. Adding the MLP blocks (<code>gate/up/down_proj</code>) roughly triples adapter params and helps heavier domain shifts, at the cost of more memory and overfitting risk on small datasets.</p>
+      <h3>QLoRA</h3>
+      <p class="dim">Same adapters, cheaper base: the frozen model is quantized to 4-bit (NF4, 0.5 bytes/param) while adapters train in bf16 with 8-bit Adam. That's how an 8B-class fine-tune fits in ~4 GB of weight memory instead of 112 GB.</p>
+      <h3>When fine-tuning beats RAG</h3>
+      <p class="dim">RAG wins when knowledge is missing or changes &mdash; retrieval stays fresh without retraining. Fine-tuning wins when the gap is <em>behavioral</em>: tone, format, domain phrasing, tool-use patterns. It's also the latency play: a baked-in behavior costs one forward pass, while RAG pays retrieval + a longer context on every query.</p>
+    </div>
+  </section>
+
+</main>
+
+<footer class="wrap">
+  Alexia Lou &middot; <a href="https://github.com/peppercatmeow">github.com/peppercatmeow</a>
+</footer>
+
+<script>
+(function(){
+  "use strict";
+
+  /* ---------- model presets ---------- */
+  var PRESETS = {
+    "8b":  { layers:32, hidden:4096, heads:32, kvHeads:8, mlp:14336, params:8e9  },
+    "70b": { layers:80, hidden:8192, heads:64, kvHeads:8, mlp:28672, params:70e9 }
+  };
+  var MODULE_ORDER = ["q_proj","k_proj","v_proj","o_proj","gate_proj","up_proj","down_proj"];
+  var DEFAULT_ON = ["q_proj","k_proj","v_proj","o_proj"];
+
+  function moduleDims(p){
+    var headDim = p.hidden / p.heads;      // 128 for both presets
+    var kvDim = p.kvHeads * headDim;       // 1024 for both presets
+    return {
+      q_proj:   [p.hidden, p.hidden],
+      k_proj:   [kvDim,    p.hidden],
+      v_proj:   [kvDim,    p.hidden],
+      o_proj:   [p.hidden, p.hidden],
+      gate_proj:[p.mlp,    p.hidden],
+      up_proj:  [p.mlp,    p.hidden],
+      down_proj:[p.hidden, p.mlp]
+    };
+  }
+
+  /* ---------- formatting ---------- */
+  function fmtInt(n){
+    return Math.round(n).toLocaleString("en-US");
+  }
+  function fmtCompact(n){
+    if (n >= 1e9) return (n/1e9).toFixed(2) + "B";
+    if (n >= 1e6) return (n/1e6).toFixed(2) + "M";
+    if (n >= 1e3) return (n/1e3).toFixed(1) + "K";
+    return "" + Math.round(n);
+  }
+  function pct(a, p){
+    if (!a) return "0%";
+    var s = (a / p * 100).toFixed(3).replace(/\.?0+$/, "");
+    return s + "%";
+  }
+  function fmtMem(bytes){
+    if (bytes >= 1e9) return (bytes/1e9).toFixed(2) + " GB";
+    return (bytes/1e6).toFixed(1) + " MB";
+  }
+
+  /* ---------- section 1: calculator ---------- */
+  var presetEl = document.getElementById("preset");
+  var rankEl = document.getElementById("rank");
+  var rankVal = document.getElementById("rankVal");
+  var modulesEl = document.getElementById("modules");
+
+  function renderModules(){
+    var dims = moduleDims(PRESETS[presetEl.value]);
+    var html = MODULE_ORDER.map(function(m){
+      var d = dims[m][0], k = dims[m][1];
+      var checked = DEFAULT_ON.indexOf(m) !== -1 ? " checked" : "";
+      return '<label><input type="checkbox" data-mod="' + m + '"' + checked + '> ' +
+             '<code>' + m + '</code> <span class="dim">' + fmtInt(d) + "\u00d7" + fmtInt(k) + '</span></label>';
+    }).join("");
+    modulesEl.innerHTML = html;
+    var inputs = modulesEl.querySelectorAll("input");
+    for (var i = 0; i < inputs.length; i++){
+      inputs[i].addEventListener("change", renderCalc);
+    }
+  }
+
+  function currentConfig(){
+    var p = PRESETS[presetEl.value];
+    var r = parseInt(rankEl.value, 10);
+    var checked = modulesEl.querySelectorAll("input:checked");
+    var mods = [];
+    for (var i = 0; i < checked.length; i++) mods.push(checked[i].getAttribute("data-mod"));
+    return { p:p, r:r, mods:mods };
+  }
+
+  function renderCalc(){
+    var cfg = currentConfig();
+    var p = cfg.p, r = cfg.r;
+    var dims = moduleDims(p);
+    var perLayer = 0;
+    var rows = cfg.mods.map(function(m){
+      var d = dims[m][0], k = dims[m][1];
+      var pl = r * (d + k);
+      perLayer += pl;
+      return { m:m, d:d, k:k, pl:pl, all: pl * p.layers };
+    });
+    var A = perLayer * p.layers;
+
+    document.getElementById("trainParams").textContent =
+      fmtInt(A) + "  (\u2248 " + fmtCompact(A) + ")";
+    document.getElementById("trainPct").textContent = pct(A, p.params);
+    var barPct = p.params > 0 ? (A / p.params * 100) : 0;
+    document.getElementById("trainBar").style.width = Math.max(barPct, 0.15) + "%";
+    document.getElementById("trainBar").title = pct(A, p.params) + " of base params";
+
+    document.getElementById("breakdown").innerHTML = rows.map(function(x){
+      return "<tr><td><code>" + x.m + "</code></td><td class=\"mono\">" +
+        fmtInt(x.d) + "\u00d7" + fmtInt(x.k) + "</td><td class=\"mono\">" +
+        fmtInt(x.pl) + "</td><td class=\"mono\">" + fmtInt(x.all) + "</td></tr>";
+    }).join("") || '<tr><td colspan="4" style="text-align:center;color:var(--muted)">no modules selected</td></tr>';
+
+    renderMemory(p.params, A);
+  }
+
+  /* ---------- section 2: memory table ---------- */
+  function renderMemory(P, A){
+    var rows = [
+      { name:"Full fine-tune",   w:2*P,   t:4*P, adam:8*P, hl:false },
+      { name:"LoRA (bf16)",      w:2*P,   t:4*A, adam:8*A, hl:true  },
+      { name:"QLoRA (4-bit base)", w:0.5*P, t:4*A, adam:2*A, hl:false }
+    ];
+    document.getElementById("memBody").innerHTML = rows.map(function(x){
+      var total = x.w + x.t + x.adam;
+      return "<tr" + (x.hl ? ' class="hl"' : "") + "><td>" + x.name + "</td>" +
+        '<td class="mono">' + fmtMem(x.w) + "</td>" +
+        '<td class="mono">' + fmtMem(x.t) + "</td>" +
+        '<td class="mono">' + fmtMem(x.adam) + "</td>" +
+        '<td class="mono"><strong>' + fmtMem(total) + "</strong></td></tr>";
+    }).join("");
+  }
+
+  /* ---------- section 3: benchmark chart ---------- */
+  var TASKS = ["API docs QA", "Runbook triage", "Log summarization", "Config generation"];
+  var SERIES = [
+    { name:"Base",     color:"#8b98ab" },
+    { name:"LoRA r=16", color:"#58a6ff" },
+    { name:"RAG",      color:"#3fb950" }
+  ];
+  var METRICS = {
+    accuracy: {
+      label:"Accuracy", unit:"%",
+      max:100,
+      tick:function(v){ return "" + Math.round(v); },
+      fmt:function(v){ return v + "%"; },
+      data:[[58,81,88],[63,84,79],[71,78,74],[52,83,69]]
+    },
+    latency: {
+      label:"p50 latency", unit:"ms",
+      max:2000,
+      tick:function(v){ return v >= 1000 ? (v/1000) + "s" : "" + v; },
+      fmt:function(v){ return v.toLocaleString("en-US") + " ms"; },
+      data:[[820,840,1450],[790,810,1380],[1100,1120,1900],[860,880,1520]]
+    },
+    cost: {
+      label:"Cost per 1k queries", unit:"$",
+      max:1,
+      tick:function(v){ return "$" + v.toFixed(2); },
+      fmt:function(v){ return "$" + v.toFixed(2); },
+      data:[[0.42,0.44,0.61],[0.40,0.42,0.58],[0.55,0.57,0.79],[0.44,0.46,0.64]]
+    }
+  };
+
+  function renderChart(key){
+    var m = METRICS[key];
+    var W = 680, labelW = 96, valW = 84, pad = 10;
+    var x0 = pad + labelW;
+    var bw = W - x0 - valW - pad;
+    var rowH = 24, titleH = 24, gap = 18, topPad = 28;
+    var groupH = titleH + 3 * rowH;
+    var H = topPad + TASKS.length * (groupH + gap);
+    var mono = "font-family='ui-monospace,Menlo,monospace'";
+
+    var s = "<svg viewBox='0 0 " + W + " " + H + "' role='img' aria-label='" +
+            m.label + " by task, base vs LoRA vs RAG'>";
+    [0, 0.25, 0.5, 0.75, 1].forEach(function(t){
+      var x = (x0 + t * bw).toFixed(1);
+      s += "<line x1='" + x + "' y1='" + (topPad - 10) + "' x2='" + x + "' y2='" + (H - 8) +
+           "' stroke='#1f2a3d' stroke-width='1'/>";
+      s += "<text x='" + x + "' y='" + (topPad - 16) + "' fill='#8b98ab' font-size='10' " +
+           "text-anchor='middle' " + mono + ">" + m.tick(t * m.max) + "</text>";
+    });
+    TASKS.forEach(function(task, ti){
+      var gy = topPad + ti * (groupH + gap);
+      s += "<text x='" + pad + "' y='" + (gy + 15) + "' fill='#e6edf3' font-size='13' font-weight='600'>" +
+           task + "</text>";
+      SERIES.forEach(function(sr, si){
+        var v = m.data[ti][si];
+        var y = gy + titleH + si * rowH;
+        var w = Math.max(v / m.max * bw, 2).toFixed(1);
+        s += "<text x='" + pad + "' y='" + (y + 16) + "' fill='#8b98ab' font-size='11'>" + sr.name + "</text>";
+        s += "<rect x='" + x0 + "' y='" + (y + 5) + "' width='" + w + "' height='14' rx='3' fill='" + sr.color + "'/>";
+        s += "<text x='" + (x0 + parseFloat(w) + 7).toFixed(1) + "' y='" + (y + 16) +
+             "' fill='#e6edf3' font-size='11' " + mono + ">" + m.fmt(v) + "</text>";
+      });
+    });
+    s += "</svg>";
+    document.getElementById("chart").innerHTML = s;
+    document.getElementById("metricLabel").textContent = m.label + " (" + m.unit + ")";
+  }
+
+  var toggleBtns = document.querySelectorAll(".toggle button");
+  for (var bi = 0; bi < toggleBtns.length; bi++){
+    toggleBtns[bi].addEventListener("click", function(){
+      for (var j = 0; j < toggleBtns.length; j++) toggleBtns[j].classList.remove("on");
+      this.classList.add("on");
+      renderChart(this.getAttribute("data-m"));
+    });
+  }
+
+  /* ---------- section 4: decision quiz ---------- */
+  var QUESTIONS = [
+    "Is the knowledge missing from the base model or changing often?",
+    "Is the gap mostly style, format, or domain phrasing?",
+    "Do you have 1k+ high-quality examples?"
+  ];
+  var answers = [];
+
+  function recommend(a){
+    if (a[0]) return {
+      title:"RAG first",
+      why:"The knowledge is missing or changes often \u2014 retrieval keeps answers fresh without retraining."
+    };
+    if (a[1] && a[2]) return {
+      title:"LoRA fine-tune",
+      why:"The gap is behavioral and you have the examples \u2014 adapters bake the behavior in at low serving cost."
+    };
+    if (a[1] && !a[2]) return {
+      title:"Prompt engineering + few-shot",
+      why:"Style gap, but too few examples to train on \u2014 teach it in context instead."
+    };
+    return {
+      title:"The base model is probably fine",
+      why:"No knowledge gap, no style gap \u2014 spend the budget on evals."
+    };
+  }
+
+  function renderQuiz(){
+    var el = document.getElementById("quiz");
+    if (answers.length >= QUESTIONS.length){
+      var r = recommend(answers);
+      el.innerHTML =
+        '<div class="rec"><div class="rec-title">' + r.title + "</div><p>" + r.why + "</p>" +
+        '<button id="quizReset" type="button">start over</button></div>';
+      document.getElementById("quizReset").addEventListener("click", function(){
+        answers = [];
+        renderQuiz();
+      });
+      return;
+    }
+    var i = answers.length;
+    var html = "";
+    for (var h = 0; h < answers.length; h++){
+      html += '<div class="qa"><span class="qnum">Q' + (h + 1) + "</span>" + QUESTIONS[h] +
+              '<span class="ans ' + (answers[h] ? "yes" : "no") + '">' +
+              (answers[h] ? "yes" : "no") + "</span></div>";
+    }
+    html += '<div class="qcard"><p><span class="qnum">Q' + (i + 1) + "</span>" + QUESTIONS[i] + "</p>" +
+            '<div><button type="button" data-a="1">yes</button>' +
+            '<button type="button" data-a="0">no</button></div></div>';
+    el.innerHTML = html;
+    var btns = el.querySelectorAll("button[data-a]");
+    for (var b = 0; b < btns.length; b++){
+      btns[b].addEventListener("click", function(){
+        answers.push(this.getAttribute("data-a") === "1");
+        renderQuiz();
+      });
+    }
+  }
+
+  /* ---------- init ---------- */
+  presetEl.addEventListener("change", function(){ renderModules(); renderCalc(); });
+  rankEl.addEventListener("input", function(){
+    rankVal.textContent = rankEl.value;
+    renderCalc();
+  });
+  renderModules();
+  renderCalc();
+  renderChart("accuracy");
+  renderQuiz();
+})();
+</script>
+</body>
+</html>
