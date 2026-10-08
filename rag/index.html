@@ -1,0 +1,529 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>RAG service with an eval harness</title>
+<style>
+  :root{
+    --bg:#0b0f17; --surface:#111826; --border:#1f2a3d; --text:#e6edf3;
+    --muted:#8b98ab; --accent:#58a6ff; --green:#3fb950; --red:#f85149; --amber:#d29922;
+  }
+  *{ box-sizing:border-box; }
+  body{
+    margin:0; background:var(--bg); color:var(--text);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    line-height:1.55;
+  }
+  main{ max-width:960px; margin:0 auto; padding:36px 20px 72px; }
+  a{ color:var(--accent); text-decoration:none; }
+  a:hover{ text-decoration:underline; }
+  .back{ font-size:14px; }
+  h1{ font-size:30px; margin:14px 0 8px; letter-spacing:-0.01em; }
+  h2{ font-size:21px; margin:0 0 12px; padding-bottom:8px; border-bottom:1px solid var(--border); }
+  .lede{ color:var(--muted); font-size:16px; margin:0 0 14px; max-width:640px; }
+  .badge{
+    display:inline-block; font-size:12px; color:var(--accent);
+    border:1px solid var(--accent); border-radius:999px; padding:3px 12px;
+    letter-spacing:0.02em;
+  }
+  section{ margin-top:44px; }
+  .mono, code, output, .score, td.num{ font-family:ui-monospace,SFMono-Regular,Menlo,monospace; }
+
+  /* controls */
+  .panel{
+    background:var(--surface); border:1px solid var(--border); border-radius:10px;
+    padding:20px; margin-bottom:20px;
+  }
+  .controls{ display:grid; gap:14px; }
+  .controls label{ display:block; font-size:14px; color:var(--muted); }
+  input[type="text"]{
+    width:100%; margin-top:6px; padding:10px 12px; font-size:15px; color:var(--text);
+    background:var(--bg); border:1px solid var(--border); border-radius:8px;
+  }
+  input[type="text"]:focus{ outline:1px solid var(--accent); border-color:var(--accent); }
+  .row{ display:flex; gap:18px; flex-wrap:wrap; align-items:center; }
+  input[type="range"]{ width:180px; vertical-align:middle; accent-color:var(--accent); }
+  output{ color:var(--text); font-size:14px; margin-left:6px; }
+  fieldset.modes{ border:1px solid var(--border); border-radius:8px; padding:10px 14px 12px; margin:0; }
+  fieldset.modes legend{ font-size:14px; color:var(--muted); padding:0 6px; }
+  fieldset.modes label{ display:inline-block; margin-right:18px; color:var(--text); font-size:15px; cursor:pointer; }
+  input[type="radio"]{ accent-color:var(--accent); margin-right:6px; }
+  select{
+    margin-left:8px; padding:8px 10px; font-size:14px; color:var(--text);
+    background:var(--bg); border:1px solid var(--border); border-radius:8px;
+  }
+  label.dim{ opacity:0.45; }
+  button{
+    justify-self:start; padding:10px 22px; font-size:15px; font-weight:600; cursor:pointer;
+    color:#fff; background:var(--accent); border:none; border-radius:8px;
+  }
+  button:hover{ filter:brightness(1.1); }
+  button.secondary{ background:transparent; color:var(--accent); border:1px solid var(--accent); }
+  .muted{ color:var(--muted); }
+  .small{ font-size:13px; }
+
+  /* results */
+  .hit{
+    background:var(--surface); border:1px solid var(--border); border-radius:10px;
+    padding:14px 18px; margin-bottom:12px;
+  }
+  .hit-head{ display:flex; align-items:baseline; gap:12px; margin-bottom:6px; }
+  .rank{ color:var(--amber); font-size:13px; }
+  .doc{ font-weight:600; font-size:14px; }
+  .score{ margin-left:auto; color:var(--muted); font-size:13px; }
+  .hit p{ margin:0; font-size:15px; }
+  mark{ background:rgba(210,153,34,0.28); color:inherit; border-radius:3px; padding:0 2px; }
+
+  /* eval table */
+  table{ width:100%; border-collapse:collapse; font-size:14px; margin-top:4px; }
+  th, td{ text-align:left; padding:9px 10px; border-bottom:1px solid var(--border); vertical-align:top; }
+  th{ color:var(--muted); font-weight:600; font-size:13px; text-transform:uppercase; letter-spacing:0.04em; }
+  td.num{ text-align:right; white-space:nowrap; }
+  th:nth-child(n+2){ text-align:right; }
+  tfoot td{ font-weight:700; border-bottom:none; border-top:2px solid var(--border); }
+  .q{ display:block; }
+  .rel{ display:block; font-size:12px; color:var(--muted); margin-top:2px; }
+  .up{ color:var(--green); font-weight:600; }
+  .down{ color:var(--red); font-weight:600; }
+  details{ margin-top:18px; border:1px solid var(--border); border-radius:8px; padding:12px 16px; background:var(--surface); }
+  summary{ cursor:pointer; font-weight:600; font-size:14px; }
+  details dl{ margin:10px 0 4px; font-size:14px; }
+  details dt{ font-weight:600; margin-top:8px; }
+  details dd{ margin:2px 0 0; color:var(--muted); }
+
+  /* how it works */
+  .how ul{ margin:0; padding-left:20px; display:grid; gap:12px; font-size:15px; }
+  .how li::marker{ color:var(--accent); }
+  .how strong{ color:var(--text); }
+  .how p{ color:var(--muted); margin:0; font-size:14px; }
+  .honest{
+    margin-top:18px; border-left:3px solid var(--amber); padding:10px 16px;
+    background:var(--surface); font-size:14px; color:var(--muted);
+  }
+  footer{ margin-top:56px; padding-top:20px; border-top:1px solid var(--border); color:var(--muted); font-size:13px; }
+</style>
+</head>
+<body>
+<main>
+
+  <header>
+    <a class="back" href="../">&larr; projects</a>
+    <h1>RAG service with an eval harness</h1>
+    <p class="lede">Hybrid retrieval over a doc corpus, tunable chunking, and an eval harness for before/after config comparison.</p>
+    <span class="badge">runs 100% in your browser</span>
+  </header>
+
+  <section id="try">
+    <h2>Try it</h2>
+    <div class="panel controls">
+      <label>Query
+        <input id="query" type="text" value="how does continuous batching improve inference throughput" autocomplete="off" spellcheck="false">
+      </label>
+      <div class="row">
+        <label>top-k
+          <input id="topk" type="range" min="1" max="5" step="1" value="3">
+          <output id="topkVal">3</output>
+        </label>
+        <label id="alphaLabel" class="dim">hybrid &alpha;
+          <input id="alpha" type="range" min="0" max="1" step="0.01" value="0.5" disabled>
+          <output id="alphaVal">0.50</output>
+        </label>
+        <label>Chunking
+          <select id="chunks">
+            <option value="1">whole document</option>
+            <option value="2">2 chunks</option>
+            <option value="4">4 chunks</option>
+          </select>
+        </label>
+      </div>
+      <fieldset class="modes">
+        <legend>Retrieval mode</legend>
+        <label><input type="radio" name="mode" value="bm25" checked>BM25</label>
+        <label><input type="radio" name="mode" value="tfidf">TF-IDF cosine</label>
+        <label><input type="radio" name="mode" value="hybrid">Hybrid</label>
+      </fieldset>
+      <button id="searchBtn" type="button">Search</button>
+    </div>
+    <div id="results" aria-live="polite"></div>
+  </section>
+
+  <section id="eval">
+    <h2>Eval harness</h2>
+    <p class="muted">6 labeled queries. Run eval scores the current config; save it as a baseline, change the config, run again to see the delta.</p>
+    <div class="panel">
+      <div class="row">
+        <button id="evalBtn" type="button">Run eval</button>
+        <button id="baseBtn" type="button" class="secondary">Save as baseline</button>
+      </div>
+    </div>
+    <div id="evalOut"></div>
+    <details>
+      <summary>Metric definitions</summary>
+      <dl>
+        <dt>P@k (precision@k)</dt>
+        <dd>Share of the top-k retrieved chunks that come from a relevant document.</dd>
+        <dt>R@k (recall@k)</dt>
+        <dd>Retrieved relevant chunks divided by the number of relevant documents.</dd>
+        <dt>RR (reciprocal rank)</dt>
+        <dd>1 &divide; the rank of the first relevant chunk; 0 when no relevant chunk is retrieved.</dd>
+        <dt>Averages</dt>
+        <dd>Mean of each metric across the 6 labeled queries.</dd>
+        <dt>Deltas</dt>
+        <dd>Current config minus the saved baseline. Green &Delta; means the change helped; red &nabla; means it hurt.</dd>
+      </dl>
+    </details>
+  </section>
+
+  <section id="how" class="how">
+    <h2>How it works</h2>
+    <ul>
+      <li><strong>BM25 (k1=1.5, b=0.75).</strong>
+        <p>Sparse lexical scoring over term frequency, inverse document frequency, and document-length normalization. Strong on exact terms &mdash; error codes, API names, model names &mdash; and still the baseline every dense system has to beat.</p></li>
+      <li><strong>TF-IDF cosine is the in-browser stand-in for dense embeddings.</strong>
+        <p>Same geometry as dense retrieval &mdash; cosine similarity over weighted vectors &mdash; with none of the semantics. It shows how the pipeline behaves when you trade lexical matching for vector similarity. In production you would use a real embedding model and an ANN index instead of brute-forcing a few dozen vectors.</p></li>
+      <li><strong>Hybrid fuses the two signals.</strong>
+        <p>Each score is min-max normalized to [0,1] over the corpus, then combined as &alpha;&middot;vector + (1&minus;&alpha;)&middot;lexical. &alpha; tunes the semantic/lexical trade-off &mdash; the right value comes from the eval set, not intuition.</p></li>
+      <li><strong>Chunking happens at index time.</strong>
+        <p>Each document is split into N roughly equal word windows, and retrieval scores chunks, not documents. Oversized chunks dilute term statistics; undersized chunks lose the context a generator needs. Measure it, don't guess it.</p></li>
+      <li><strong>What production adds.</strong>
+        <p>pgvector or FAISS (HNSW) for approximate nearest-neighbor search at scale, a cross-encoder reranker over the top-k candidates, and this same before/after eval discipline on every pipeline change.</p></li>
+    </ul>
+    <div class="honest"><strong>Honest label:</strong> the algorithms are real &mdash; this is actual BM25 and actual cosine similarity, not a mock. The corpus is a toy (12 documents), so treat absolute scores as illustrative and relative deltas as the signal.</div>
+  </section>
+
+  <footer>Alexia Lou &middot; <a href="https://github.com/peppercatmeow">github.com/peppercatmeow</a></footer>
+
+</main>
+
+<script>
+// ---------------------------------------------------------------------------
+// Corpus: 12 docs, id / title / text.
+// ---------------------------------------------------------------------------
+const DOCS = [
+  { id: 1, title: "kv-cache", text: "The KV cache stores key and value tensors from previous decoding steps so the model does not recompute attention over the full prefix on every token. Its size grows as 2 \u00d7 layers \u00d7 hidden_dim \u00d7 sequence_length \u00d7 batch \u00d7 bytes_per_element. For long contexts it dominates GPU memory, which is why paged attention and quantization of the KV cache matter." },
+  { id: 2, title: "continuous-batching", text: "Continuous batching, popularized by vLLM, inserts new requests into the running batch as soon as earlier requests finish, instead of waiting for the whole batch. Combined with paged attention for KV cache management, it raises throughput several-fold over static batching. It is the default scheduling strategy in modern LLM serving." },
+  { id: 3, title: "rag-overview", text: "Retrieval-augmented generation grounds an LLM's answers in external documents: retrieve relevant chunks, then generate conditioned on them. It reduces hallucination on knowledge the model was not trained on and lets answers cite sources. RAG is usually the first lever to pull before fine-tuning." },
+  { id: 4, title: "chunking", text: "Chunking splits documents into retrievable units; too large and the chunk dilutes the signal, too small and it loses context. Common strategies are fixed-size windows with overlap, sentence-aware splits, and semantic chunking by embedding similarity. The right chunk size is measured with an eval set, not guessed." },
+  { id: 5, title: "bm25", text: "BM25 is a sparse lexical retrieval function built on term frequency, inverse document frequency, and document-length normalization. It is strong for exact term matches like error codes and API names, and remains a competitive baseline. Hybrid systems combine BM25 with dense retrieval." },
+  { id: 6, title: "embeddings", text: "Dense retrieval encodes queries and documents into vectors with an embedding model and searches by cosine similarity in a vector database. It captures paraphrase and semantics that lexical search misses. Typical stores are pgvector, FAISS, and Chroma." },
+  { id: 7, title: "reranking", text: "A reranker, often a cross-encoder, rescores the top-k candidates from first-stage retrieval with a more expensive joint model. It trades latency for precision and is standard in production RAG pipelines. Evaluate with and without it before paying the cost." },
+  { id: 8, title: "lora", text: "LoRA freezes the base model and trains low-rank adapter matrices, typically cutting trainable parameters to well under 1 percent. It matches full fine-tuning on many adaptation tasks at a fraction of the memory cost. QLoRA adds 4-bit quantization of the frozen weights." },
+  { id: 9, title: "quantization", text: "Quantization lowers weight precision from FP16 to INT8 or INT4 to cut memory and speed up inference. For serving, INT8/FP8 often preserves quality; for the KV cache, 8-bit quantization extends maximum context. Always measure quality before and after." },
+  { id: 10, title: "evals", text: "RAG evals measure retrieval and generation separately: precision@k, recall@k, and MRR for retrieval; faithfulness and answer relevance, often LLM-judged, for generation. Frameworks like RAGAS package these. Run the harness before and after every pipeline change." },
+  { id: 11, title: "autoscaling", text: "Autoscaling an inference fleet on queue depth or p99 latency keeps tail latency flat under bursty arrivals. Scale-up must be fast because cold model loads take tens of seconds; many teams over-provision a warm pool. Track cost per million tokens alongside latency." },
+  { id: 12, title: "pgvector", text: "pgvector adds vector similarity search to Postgres with IVFFlat and HNSW indexes. It is a pragmatic choice when the documents already live in Postgres and scale is moderate. Dedicated engines like FAISS or Qdrant win at very large scale." }
+];
+
+// ---------------------------------------------------------------------------
+// Labeled eval set: query -> relevant doc ids.
+// ---------------------------------------------------------------------------
+const EVAL = [
+  { q: "how does vllm schedule requests", rel: [2] },
+  { q: "reduce kv cache memory usage", rel: [1, 9] },
+  { q: "combine sparse and dense retrieval", rel: [5, 6, 3] },
+  { q: "cheap fine-tuning with adapters", rel: [8] },
+  { q: "measure rag answer quality", rel: [10] },
+  { q: "scale inference fleet on latency", rel: [11, 2] }
+];
+
+const MODE_LABEL = { bm25: "BM25", tfidf: "TF-IDF cosine", hybrid: "Hybrid" };
+
+// ---------------------------------------------------------------------------
+// Text utils.
+// ---------------------------------------------------------------------------
+function tokenize(s) {
+  return s.toLowerCase().match(/[a-z0-9]+/g) || [];
+}
+function esc(s) {
+  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
+// ---------------------------------------------------------------------------
+// Chunking, applied at index time: split each doc into N roughly equal word
+// windows, labeled "title \u00b7 chunk i/n".
+// ---------------------------------------------------------------------------
+function buildChunks(n) {
+  const chunks = [];
+  for (const d of DOCS) {
+    const words = d.text.split(/\s+/).filter(Boolean);
+    const size = Math.ceil(words.length / n);
+    for (let i = 0; i < n; i++) {
+      const slice = words.slice(i * size, (i + 1) * size);
+      if (!slice.length) continue;
+      const text = slice.join(" ");
+      chunks.push({
+        docId: d.id,
+        label: n === 1 ? d.title : d.title + " \u00b7 chunk " + (i + 1) + "/" + n,
+        text: text,
+        tokens: tokenize(text)
+      });
+    }
+  }
+  return chunks;
+}
+
+function indexStats(chunks) {
+  const df = new Map();
+  let totalLen = 0;
+  for (const c of chunks) {
+    totalLen += c.tokens.length;
+    for (const t of new Set(c.tokens)) df.set(t, (df.get(t) || 0) + 1);
+  }
+  return { n: chunks.length, df: df, avgdl: totalLen / chunks.length };
+}
+
+// ---------------------------------------------------------------------------
+// BM25 with k1=1.5, b=0.75, scored over the chunked corpus.
+// ---------------------------------------------------------------------------
+function bm25Scores(chunks, stats, qterms) {
+  const k1 = 1.5, b = 0.75;
+  const N = stats.n, df = stats.df, avgdl = stats.avgdl;
+  return chunks.map((c) => {
+    const tf = new Map();
+    for (const t of c.tokens) tf.set(t, (tf.get(t) || 0) + 1);
+    let s = 0;
+    for (const t of new Set(qterms)) {
+      const f = tf.get(t) || 0;
+      if (!f) continue;
+      const dft = df.get(t) || 0;
+      const idf = Math.log(1 + (N - dft + 0.5) / (dft + 0.5));
+      s += idf * (f * (k1 + 1)) / (f + k1 * (1 - b + (b * c.tokens.length) / avgdl));
+    }
+    return s;
+  });
+}
+
+// ---------------------------------------------------------------------------
+// TF-IDF cosine with smoothed idf: the in-browser stand-in for dense retrieval.
+// ---------------------------------------------------------------------------
+function tfidfScores(chunks, stats, qterms) {
+  const N = stats.n, df = stats.df;
+  const idf = (t) => Math.log(1 + N / (df.get(t) || 1));
+  const qtf = new Map();
+  for (const t of qterms) {
+    if (df.has(t)) qtf.set(t, (qtf.get(t) || 0) + 1);
+  }
+  const qw = new Map();
+  let qnorm = 0;
+  for (const [t, f] of qtf) {
+    const w = f * idf(t);
+    qw.set(t, w);
+    qnorm += w * w;
+  }
+  qnorm = Math.sqrt(qnorm);
+  return chunks.map((c) => {
+    const tf = new Map();
+    for (const t of c.tokens) tf.set(t, (tf.get(t) || 0) + 1);
+    let dot = 0, dnorm = 0;
+    for (const [t, f] of tf) {
+      const w = f * idf(t);
+      dnorm += w * w;
+      if (qw.has(t)) dot += w * qw.get(t);
+    }
+    dnorm = Math.sqrt(dnorm);
+    return (dnorm && qnorm) ? dot / (dnorm * qnorm) : 0;
+  });
+}
+
+function minmax(arr) {
+  const mn = Math.min(...arr), mx = Math.max(...arr);
+  if (mx === mn) return arr.map(() => 0);
+  return arr.map((v) => (v - mn) / (mx - mn));
+}
+
+// ---------------------------------------------------------------------------
+// Retrieval entry point. Returns top-k ranked {chunk, score, rank}.
+// ---------------------------------------------------------------------------
+function search(query, cfg) {
+  const chunks = buildChunks(cfg.nchunks);
+  const stats = indexStats(chunks);
+  const qterms = tokenize(query).filter((t) => stats.df.has(t));
+  let scores;
+  if (cfg.mode === "bm25") {
+    scores = bm25Scores(chunks, stats, qterms);
+  } else if (cfg.mode === "tfidf") {
+    scores = tfidfScores(chunks, stats, qterms);
+  } else {
+    const a = minmax(tfidfScores(chunks, stats, qterms));
+    const b = minmax(bm25Scores(chunks, stats, qterms));
+    scores = a.map((v, i) => cfg.alpha * v + (1 - cfg.alpha) * b[i]);
+  }
+  return chunks
+    .map((c, i) => ({ chunk: c, score: scores[i] }))
+    .sort((x, y) => y.score - x.score)
+    .slice(0, cfg.k)
+    .map((r, i) => ({ chunk: r.chunk, score: r.score, rank: i + 1 }));
+}
+
+// ---------------------------------------------------------------------------
+// Query-term highlighting.
+// ---------------------------------------------------------------------------
+function highlight(text, qterms) {
+  let h = esc(text);
+  const uniq = [...new Set(qterms)].sort((a, b) => b.length - a.length);
+  if (!uniq.length) return h;
+  const pat = uniq.map((t) => t.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|");
+  return h.replace(new RegExp("\\b(" + pat + ")\\b", "gi"), "<mark>$1</mark>");
+}
+
+// ---------------------------------------------------------------------------
+// Config + UI wiring.
+// ---------------------------------------------------------------------------
+function readConfig() {
+  return {
+    mode: document.querySelector('input[name="mode"]:checked').value,
+    alpha: parseFloat(document.getElementById("alpha").value),
+    nchunks: parseInt(document.getElementById("chunks").value, 10),
+    k: parseInt(document.getElementById("topk").value, 10)
+  };
+}
+
+function cfgSummary(cfg) {
+  const chunkLabel = { 1: "whole doc", 2: "2 chunks", 4: "4 chunks" }[cfg.nchunks];
+  let s = MODE_LABEL[cfg.mode] + " \u00b7 k=" + cfg.k + " \u00b7 " + chunkLabel;
+  if (cfg.mode === "hybrid") s += " \u00b7 \u03b1=" + cfg.alpha.toFixed(2);
+  return s;
+}
+
+function renderResults() {
+  const q = document.getElementById("query").value;
+  const cfg = readConfig();
+  const qterms = tokenize(q);
+  const box = document.getElementById("results");
+  if (!qterms.length) {
+    box.innerHTML = '<p class="muted">Type a query to search the corpus.</p>';
+    return;
+  }
+  const ranked = search(q, cfg);
+  box.innerHTML = ranked.map((r) =>
+    '<article class="hit">' +
+      '<div class="hit-head"><span class="rank">#' + r.rank + "</span>" +
+      '<span class="doc">' + esc(r.chunk.label) + "</span>" +
+      '<span class="score">' + r.score.toFixed(4) + "</span></div>" +
+      "<p>" + highlight(r.chunk.text, qterms) + "</p>" +
+    "</article>"
+  ).join("");
+}
+
+// ---------------------------------------------------------------------------
+// Eval harness: P@k, R@k, reciprocal rank per query, with optional baseline deltas.
+// A retrieved chunk counts as a hit when its doc id is in the relevant set.
+// ---------------------------------------------------------------------------
+let lastEval = null;  // { rows, cfg }
+let baseline = null;  // { rows, cfg }
+
+function evalOnce(cfg) {
+  return EVAL.map((item) => {
+    const ranked = search(item.q, cfg);
+    const rel = new Set(item.rel);
+    let hits = 0, first = 0;
+    ranked.forEach((r, i) => {
+      if (rel.has(r.chunk.docId)) {
+        hits++;
+        if (!first) first = i + 1;
+      }
+    });
+    return {
+      q: item.q,
+      rel: item.rel,
+      p: hits / cfg.k,
+      r: hits / rel.size,
+      rr: first ? 1 / first : 0
+    };
+  });
+}
+
+function avg(rows, key) {
+  return rows.reduce((s, r) => s + r[key], 0) / rows.length;
+}
+
+function deltaCell(cur, base) {
+  const d = cur - base;
+  if (Math.abs(d) < 0.0005) return '<span class="muted">\u00b10.000</span>';
+  const cls = d > 0 ? "up" : "down";
+  const arrow = d > 0 ? "\u25b2" : "\u25bc";
+  return '<span class="' + cls + '">' + (d > 0 ? "+" : "") + d.toFixed(3) + " " + arrow + "</span>";
+}
+
+function renderEval() {
+  const box = document.getElementById("evalOut");
+  if (!lastEval) { box.innerHTML = ""; return; }
+  const rows = lastEval.rows;
+  const hasBase = !!baseline;
+  const bAvg = hasBase
+    ? { p: avg(baseline.rows, "p"), r: avg(baseline.rows, "r"), rr: avg(baseline.rows, "rr") }
+    : null;
+  const dth = hasBase ? "<th>\u0394</th>" : "";
+  let html = '<div class="panel"><table><thead><tr><th>Query</th><th>P@k</th>' + dth +
+    "<th>R@k</th>" + dth + "<th>RR</th>" + dth + "</tr></thead><tbody>";
+  rows.forEach((r, i) => {
+    html += "<tr><td><span class=\"q\">" + esc(r.q) + "</span>" +
+      '<span class="rel">relevant: ' + r.rel.join(", ") + "</span></td>" +
+      '<td class="num">' + r.p.toFixed(3) + "</td>" +
+      (hasBase ? '<td class="num">' + deltaCell(r.p, baseline.rows[i].p) + "</td>" : "") +
+      '<td class="num">' + r.r.toFixed(3) + "</td>" +
+      (hasBase ? '<td class="num">' + deltaCell(r.r, baseline.rows[i].r) + "</td>" : "") +
+      '<td class="num">' + r.rr.toFixed(3) + "</td>" +
+      (hasBase ? '<td class="num">' + deltaCell(r.rr, baseline.rows[i].rr) + "</td>" : "") +
+      "</tr>";
+  });
+  html += "</tbody><tfoot><tr><td>average</td>" +
+    '<td class="num">' + avg(rows, "p").toFixed(3) + "</td>" +
+    (hasBase ? '<td class="num">' + deltaCell(avg(rows, "p"), bAvg.p) + "</td>" : "") +
+    '<td class="num">' + avg(rows, "r").toFixed(3) + "</td>" +
+    (hasBase ? '<td class="num">' + deltaCell(avg(rows, "r"), bAvg.r) + "</td>" : "") +
+    '<td class="num">' + avg(rows, "rr").toFixed(3) + "</td>" +
+    (hasBase ? '<td class="num">' + deltaCell(avg(rows, "rr"), bAvg.rr) + "</td>" : "") +
+    "</tr></tfoot></table>" +
+    '<p class="muted small">config: ' + esc(cfgSummary(lastEval.cfg)) + "</p>";
+  if (hasBase) {
+    html += '<p class="muted small">baseline: ' + esc(cfgSummary(baseline.cfg)) + "</p>";
+  }
+  html += "</div>";
+  box.innerHTML = html;
+}
+
+// ---------------------------------------------------------------------------
+// Wire up controls.
+// ---------------------------------------------------------------------------
+const topk = document.getElementById("topk");
+const topkVal = document.getElementById("topkVal");
+topk.addEventListener("input", () => { topkVal.textContent = topk.value; });
+
+const alpha = document.getElementById("alpha");
+const alphaVal = document.getElementById("alphaVal");
+const alphaLabel = document.getElementById("alphaLabel");
+alpha.addEventListener("input", () => { alphaVal.textContent = parseFloat(alpha.value).toFixed(2); });
+
+document.querySelectorAll('input[name="mode"]').forEach((r) =>
+  r.addEventListener("change", () => {
+    const hybrid = document.querySelector('input[name="mode"]:checked').value === "hybrid";
+    alpha.disabled = !hybrid;
+    alphaLabel.classList.toggle("dim", !hybrid);
+  })
+);
+
+document.getElementById("searchBtn").addEventListener("click", renderResults);
+document.getElementById("query").addEventListener("keydown", (e) => {
+  if (e.key === "Enter") renderResults();
+});
+
+document.getElementById("evalBtn").addEventListener("click", () => {
+  const cfg = readConfig();
+  lastEval = { rows: evalOnce(cfg), cfg: cfg };
+  renderEval();
+});
+document.getElementById("baseBtn").addEventListener("click", () => {
+  if (!lastEval) {
+    const cfg = readConfig();
+    lastEval = { rows: evalOnce(cfg), cfg: cfg };
+  }
+  baseline = lastEval;
+  renderEval();
+});
+
+renderResults();
+</script>
+</body>
+</html>
